@@ -1,6 +1,7 @@
 import paho.mqtt.client as mqtt
 import threading
 import time
+import random
 
 #Declaration of global constants.
 NODE_ID = 1 #Node ID, as an integer, one of the unique properties of each node.
@@ -10,8 +11,8 @@ BROKER_IP = "localhost" #MIGHT need to be changed according to the IP address of
 client = mqtt.Client()
 nodeMasterCounter = 0 #Counter to keep track of elapsed time
 nodeIsAwake = True #Each node is assumed to be awake on startup
-nodeSleepBeginning = 5 #Node will enter sleep mode after this amount of time has passed
-nodeSleepDuration = 3 #Node will be asleep for this duration
+nodeSleepBeginning = 5 #Node will enter sleep mode after this amount of time has passed, 5 is the default value, will change on each wakeup randomly
+nodeSleepDuration = 5 #Node will be asleep for this duration, 5 is the default value, will change on each wakeup randomly
 neighbourNodeSleepDuration = -1 #Duration of sleep mode receieved from an adjacent node. -1 by default, until a valid incoming message has been received
 
 
@@ -32,7 +33,7 @@ def on_message(client, userdata, msg):
 		decodedData=decodedData[1:] #Remove the first character from the string
 	dataList=decodedData.split(",") #dataList=[<Neighbour Node ID>,<Neighbour Node Sleep Duration]
 	#End of parser
-	if neighbourNodeSleepDuration == -1: #If the node has not already received a schedule from a neighbour node
+	if neighbourNodeSleepDuration == -1 and nodeMasterCounter >=6: #If the node has not yet received a schedule from a neighbour node AND the node has been awake for at least 3 seconds
 		neighbourNodeSleepDuration = dataList[1]
 		nodeSleepDuration = neighbourNodeSleepDuration
 		nodeSleep(nodeSleepDuration)
@@ -62,6 +63,11 @@ def nodeWakeup():
 	global nodeMasterCounter
 	global nodeIsAwake
 	global neighbourNodeSleepDuration
+	global nodeSleepBeginning
+	global nodeSleepDuration
+	nodeSleepBeginning = random.randint(3,10)
+	nodeSleepDuration = random.randint(5,10)
+	print("$$$$$$$$$$",nodeSleepBeginning, nodeSleepDuration)
 	neighbourNodeSleepDuration = -1
 	nodeMasterCounter = 0
 	nodeIsAwake = True #Node awakens
@@ -91,17 +97,6 @@ while True: #Main loop, main thread
 		nodeSleep(nodeSleepDuration) #Node initiates its sleep routine
 	if nodeIsAwake == False and nodeMasterCounter == (nodeSleepDuration *2):
 		nodeWakeup() #Node initiates its wakeup routine
-	nodeMasterCounter += 1
-	print(nodeMasterCounter) #For debug purposes, will be omitted later on
-	time.sleep(0.5)
-while True: #Main loop, main thread
-	sendDebugData()
-	if NODE_IS_AWAKE == True and nodeMasterCounter == (nodeSleepBeginning * 2): #Each second will be 2 counter increments
-		nodeMasterCounter = 0
-		NODE_IS_AWAKE = False #Node goes to sleep
-	if NODE_IS_AWAKE == False and nodeMasterCounter == (nodeSleepDuration *2):
-		nodeMasterCounter = 0
-		NODE_IS_AWAKE = True #Node awakens
 	nodeMasterCounter += 1
 	print(nodeMasterCounter) #For debug purposes, will be omitted later on
 	time.sleep(0.5)
