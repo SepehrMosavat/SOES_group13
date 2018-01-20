@@ -1,11 +1,19 @@
 import paho.mqtt.client as mqtt
 import threading
 import time
+import random
 
+#Declaration of global constants.
 NODE_ID = 1 #Node ID, as an integer, one of the unique properties of each node.
 BROKER_IP = "localhost" #MIGHT need to be changed according to the IP address of the machine the code is running on
-NODE_IS_AWAKE = True #Each node is assumed to be awake on startup
+
+#Declaration of global variables
 client = mqtt.Client()
+nodeMasterCounter = 0 #Counter to keep track of elapsed time
+nodeIsAwake = True #Each node is assumed to be awake on startup
+nodeSleepBeginning = 5 #Node will enter sleep mode after this amount of time has passed, 5 is the default value, will change on each wakeup randomly
+nodeSleepDuration = 5 #Node will be asleep for this duration, 5 is the default value, will change on each wakeup randomly
+neighbourNodeSleepDuration = -1 #Duration of sleep mode receieved from an adjacent node. -1 by default, until a valid incoming message has been received
 
 
 # methods to set the MQTT connection
@@ -13,15 +21,22 @@ def on_disconnect(client, userdate, flags, rc):
 	print("Subcscriber disconnected...")
 
 def on_connect(client, userdata, flags, rc):
-	print("Connected with result code " + str(rc))
-	if NODE_ID == 1:
-		client.subscribe("node_comm/2", 0) #node 1 connects only to node 2
-	else: #other node connect to the two adjacent nodes
-		client.subscribe("node_comm/" + str(NODE_ID-1), 0)
-		client.subscribe("node_comm/" + str(NODE_ID+1), 0)
+	#print("Connected with result code " + str(rc))
+	client.subscribe("node_comm/" + str(NODE_ID), 0) #Each node subscribes to its own topic, functioning as incoming channel
 
 def on_message(client, userdata, msg):
-	global current_state
+	global neighbourNodeSleepDuration
+	decodedData = bytes.decode(msg.payload) #Decoded MQTT message, need parsing
+	print(decodedData)
+	#Beginning of message parser
+	if decodedData[0] == '$': #Check the first character of the incoming message for consistancy
+		decodedData=decodedData[1:] #Remove the first character from the string
+	dataList=decodedData.split(",") #dataList=[<Neighbour Node ID>,<Neighbour Node Sleep Duration]
+	#End of parser
+	if neighbourNodeSleepDuration == -1 and nodeMasterCounter >=6: #If the node has not yet received a schedule from a neighbour node AND the node has been awake for at least 3 seconds
+		neighbourNodeSleepDuration = dataList[1]
+		nodeSleepDuration = neighbourNodeSleepDuration
+		nodeSleep(nodeSleepDuration)
 	
 def mqttSubscriber():	
 	client.on_connect = on_connect
@@ -32,30 +47,56 @@ def mqttSubscriber():
 
 def sendDebugData():
 	#All nodes publish debug information to this channel, but NONE of the nodes subscribes to it
-	if NODE_IS_AWAKE == True:
-		client.publish("debug_channel/", "Node " + str(NODE_ID) + " awake!")
+	if nodeIsAwake == True:
+		client.publish("debug_channel/" + str(NODE_ID), "Node " + str(NODE_ID) + " awake!")
 	else:
-		client.publish("debug_channel/", "Node " + str(NODE_ID) + " asleep!")
+		client.publish("debug_channel/" + str(NODE_ID), "Node " + str(NODE_ID) + " asleep!")
+
+def nodeSleep(sleepDuration):
+	global nodeMasterCounter
+	global nodeIsAwake
+	nodeMasterCounter = 0
+	sendMessageToAdjacentNodes("$" + str(NODE_ID) + "," + str(sleepDuration)) #Message format: "$<NODE_ID>,<sleepDuration>"
+	nodeIsAwake = False #Node goes to sleep
+	
+def nodeWakeup():
+	global nodeMasterCounter
+	global nodeIsAwake
+	global neighbourNodeSleepDuration
+	global nodeSleepBeginning
+	global nodeSleepDuration
+	nodeSleepBeginning = random.randint(3,10)
+	nodeSleepDuration = random.randint(5,10)
+	print("$$$$$$$$$$",nodeSleepBeginning, nodeSleepDuration)
+	neighbourNodeSleepDuration = -1
+	nodeMasterCounter = 0
+	nodeIsAwake = True #Node awakens
+	
+def sendMessageToAdjacentNodes(msg):
+	if NODE_ID == 1:
+		client.publish("node_comm/2", msg)
+	else:
+		client.publish("node_comm/" + str(NODE_ID-1), msg)
+		client.publish("node_comm/" + str(NODE_ID+1), msg)
+
 
 t1 = threading.Thread(target=mqttSubscriber, args=())
 t1.daemon = True
 t1.start()
 
 #########################################################
-#Variable definition and initialization for the main loop
+#Variable definition/initialization for the main loop
 #########################################################
 
 nodeMasterCounter = 0 #Counter to keep track of elapsed time
-nodeSleepBeginning = 5 #Node will enter sleep mode after this amount of time has passed
-nodeSleepDuration = 3 #Node will be asleep for this duration
+
+
 while True: #Main loop, main thread
 	sendDebugData()
-	if NODE_IS_AWAKE == True and nodeMasterCounter == (nodeSleepBeginning * 2): #Each second will be 2 counter increments
-		nodeMasterCounter = 0
-		NODE_IS_AWAKE = False #Node goes to sleep
-	if NODE_IS_AWAKE == False and nodeMasterCounter == (nodeSleepDuration *2):
-		nodeMasterCounter = 0
-		NODE_IS_AWAKE = True #Node awakens
+	if nodeIsAwake == True and nodeMasterCounter == (nodeSleepBeginning * 2): #Each second will be 2 counter increments
+		nodeSleep(nodeSleepDuration) #Node initiates its sleep routine
+	if nodeIsAwake == False and nodeMasterCounter == (nodeSleepDuration *2):
+		nodeWakeup() #Node initiates its wakeup routine
 	nodeMasterCounter += 1
 	print(nodeMasterCounter) #For debug purposes, will be omitted later on
 	time.sleep(0.5)
