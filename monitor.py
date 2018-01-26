@@ -7,75 +7,60 @@ import paho.mqtt.client as mqtt
 import threading
 import time
 import os
+from colorama import init
+init()
+from colorama import Fore, Back, Style
 
 
 BROKER_IP = "localhost" #MIGHT need to be changed according to the IP address of the machine the code is running on
 NODE_TIMEOUT_PERIOD = 1 #In seconds
+LINE_STRING = "================================================================================================================"
 client = mqtt.Client()
-nodeOneStatus="N/A"
-nodeTwoStatus="N/A"
-nodeThreeStatus="N/A"
-nodeOneTimeoutCounter = 0
-nodeTwoTimeoutCounter = 0
-nodeThreeTimeoutCounter = 0
-nodeOneRunsApp = "-------"
-nodeTwoRunsApp = "-------"
-nodeThreeRunsApp = "-------"
+nodeStatus = ["N/A"] * 6
+nodeTimeOutCounter = [0] * 6
+nodeRunsApp = [Back.YELLOW + Fore.WHITE + "-------" + Style.RESET_ALL] * 6
+nodeAwakeTime = [0] * 6
+nodeAppRunTime = [0] * 6
+globalApplicationState = "-------,0"
 	
 def on_disconnect(client, userdate, flags, rc):
 	print("Subcscriber disconnected...")
 
 def on_connect(client, userdata, flags, rc):
 	#print("Connected with result code " + str(rc))
-	client.subscribe("debug_channel/1", 0)
-	client.subscribe("debug_channel/2", 0)
-	client.subscribe("debug_channel/3", 0)
+	client.subscribe("debug_channel/#", 0)
 
 def on_message(client, userdata, msg):
+	global nodeStatus
+	global nodeTimeOutCounter
+	global nodeRunsApp
+	global nodeAwakeTime
+	global nodeAppRunTime
+	global globalApplicationState
+	tempString = ""
 	decodedData = bytes.decode(msg.payload) #Decoded MQTT message, need parsing
-	global nodeOneStatus
-	global nodeTwoStatus
-	global nodeThreeStatus
-	global nodeOneTimeoutCounter
-	global nodeTwoTimeoutCounter
-	global nodeThreeTimeoutCounter
-	global nodeOneRunsApp
-	global nodeTwoRunsApp
-	global nodeThreeRunsApp
-	if decodedData == "N1W":
-		nodeOneStatus = "Awake"
-		nodeOneTimeoutCounter = 0
-	elif decodedData == "N1S":
-		nodeOneStatus = "Asleep"
-		nodeOneTimeoutCounter = 0
-	if decodedData == "N2W":
-		nodeTwoStatus = "Awake"
-		nodeTwoTimeoutCounter = 0
-	elif decodedData == "N2S":
-		nodeTwoStatus = "Asleep"
-		nodeTwoTimeoutCounter = 0
-	if decodedData == "N3W":
-		nodeThreeStatus = "Awake"
-		nodeThreeTimeoutCounter = 0
-	elif decodedData == "N3S":
-		nodeThreeStatus = "Asleep"
-		nodeThreeTimeoutCounter = 0
-	if decodedData == "N1AT":
-		nodeOneRunsApp = "Running"
-	elif decodedData == "N1AF":
-		nodeOneRunsApp = "-------"
-	if decodedData == "N2AT":
-		nodeTwoRunsApp = "Running"
-	elif decodedData == "N2AF":
-		nodeTwoRunsApp = "-------"
-	if decodedData == "N3AT":
-		nodeThreeRunsApp = "Running"
-	elif decodedData == "N3AF":
-		nodeThreeRunsApp = "-------"
+	msgTopicList = msg.topic.split('/')
+	if msgTopicList[1] == "status":
+		if decodedData == "Awake":
+			tempString = Fore.GREEN + decodedData + Style.RESET_ALL
+		else:
+			tempString = Fore.RED + decodedData + Style.RESET_ALL
+		nodeStatus[int(msgTopicList[2])] = tempString
+		nodeTimeOutCounter[int(msgTopicList[2])] = 0
+	elif msgTopicList[1] == "application":
+		if decodedData == "Running":
+			tempString = Back.BLUE + Fore.WHITE + decodedData + Style.RESET_ALL
+		else:
+			tempString = ""
+		nodeRunsApp[int(msgTopicList[2])] = tempString
+		nodeTimeOutCounter[int(msgTopicList[2])] = 0
+	elif msgTopicList[1] == "application_state":
+		globalApplicationState = decodedData
+	elif msgTopicList[1] == "stats":
+		statsDataList = decodedData.split(',')
+		nodeAwakeTime[int(msgTopicList[2])] = statsDataList[0]
+		nodeAppRunTime[int(msgTopicList[2])] = statsDataList[1]
 
-	
-	
-	
 def mqttSubscriber():	
 	client.on_connect = on_connect
 	client.on_message = on_message
@@ -89,20 +74,50 @@ t1.start()
 
 while True:
 	os.system('cls')
-	print("Node 1:\t\t Node2:\t\t Node 3:")
-	print(nodeOneStatus + "\t\t " + nodeTwoStatus + "\t\t " + nodeThreeStatus + "\t\t")
-	print("========================================")
-	print(nodeOneRunsApp + "\t\t " + nodeTwoRunsApp + "\t " + nodeThreeRunsApp + "\t\t")
-	if nodeOneTimeoutCounter > (NODE_TIMEOUT_PERIOD * 5):
-		nodeOneStatus = "N/A"
-		nodeOneRunsApp = "-------"
-	if nodeTwoTimeoutCounter > (NODE_TIMEOUT_PERIOD * 5):
-		nodeTwoStatus = "N/A"
-		nodeTwoRunsApp = "-------"
-	if nodeThreeTimeoutCounter > (NODE_TIMEOUT_PERIOD * 5):
-		nodeThreeStatus = "N/A"
-		nodeThreeRunsApp = "-------"
-	nodeOneTimeoutCounter += 1
-	nodeTwoTimeoutCounter +=1
-	nodeThreeTimeoutCounter += 1
-	time.sleep(0.2)
+	tempString = ""
+	for i in range(1,6):
+		tempString += Back.WHITE + Fore.BLACK + "Node" + str(i) + ":\t\t\t" + Style.RESET_ALL
+	print(tempString + "\n")
+	tempString = ""
+	for i in range(1,6):
+		tempString += (nodeStatus[i] + "\t\t\t")
+	print(tempString)
+	print(LINE_STRING)
+	tempString = ""
+	for i in range(1,6):
+		tempString += (nodeRunsApp[i] + "\t\t\t")
+	print(tempString)
+	print(LINE_STRING)
+	tempString = ""
+	for i in range(1,6):
+		tempString += "Awake Time:\t\t"
+	print(tempString)
+	tempString = ""
+	for i in range(1,6):
+		if int(globalApplicationState.split(',')[1]) == 0:
+			percentTempString = "N/A"
+		else:
+			percentTempString = int((int(nodeAwakeTime[i])/int(globalApplicationState.split(',')[1])*100))
+		tempString += (str(nodeAwakeTime[i]) + " (" + str(percentTempString) + " %)" + "\t\t")
+	print(tempString)
+	print(LINE_STRING)
+	tempString = ""
+	for i in range(1,6):
+		tempString += "App Time:\t\t"
+	print(tempString)
+	tempString = ""
+	for i in range(1,6):
+		if int(globalApplicationState.split(',')[1]) == 0:
+			percentTempString = "N/A"
+		else:
+			percentTempString = int((int(nodeAppRunTime[i])/int(globalApplicationState.split(',')[1])*100))
+		tempString += (str(nodeAppRunTime[i]) + " (" + str(percentTempString) + " %)" + "\t\t")
+	print(tempString)
+	print(LINE_STRING)
+	print("Node " + str(globalApplicationState.split(',')[0]) + " ==> " + str(globalApplicationState.split(',')[1]))
+	for i in range(1,6):
+		if nodeTimeOutCounter[i] > (NODE_TIMEOUT_PERIOD):
+			nodeStatus[i] = "N/A"
+			nodeRunsApp[i] = Back.YELLOW + Fore.WHITE + "-------" + Style.RESET_ALL
+		nodeTimeOutCounter[i] += 1
+	time.sleep(1)
